@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Undo/Redo Text Editor</title>
+<style>
+:root{
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  --bg:#eef3f5; --panel:#ffffff; --ink:#12343b; --muted:#5b747a; --line:#cfdce0;
+  --undo:#b45f06; --undo-bg:#fdf1e1; --redo:#2257c4; --redo-bg:#e6eefc;
+  --hit:#ffe58a; --bad:#b3261e; --ok:#1c7a4b;
+  --sans:"Segoe UI",system-ui,-apple-system,Arial,sans-serif; --mono:ui-monospace,Menlo,Consolas,"Courier New",monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){color-scheme:dark;
+    --bg:#0f1c20; --panel:#172a30; --ink:#e3eef0; --muted:#8fa8ae; --line:#2b4249;
+    --undo:#f0a95a; --undo-bg:#33261a; --redo:#7fa8ff; --redo-bg:#1b2a47; --hit:#6b5a12; --bad:#ff8a80; --ok:#6fd49c;}
+}
+:root[data-theme="dark"]{color-scheme:dark;
+  --bg:#0f1c20; --panel:#172a30; --ink:#e3eef0; --muted:#8fa8ae; --line:#2b4249;
+  --undo:#f0a95a; --undo-bg:#33261a; --redo:#7fa8ff; --redo-bg:#1b2a47; --hit:#6b5a12; --bad:#ff8a80; --ok:#6fd49c;}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 var(--sans)}
+main{max-width:1100px;margin:0 auto;padding:20px 16px 40px}
+h1{font-size:clamp(1.6rem,4vw,2.3rem);margin:0 0 4px;letter-spacing:-.02em}
+.sub{color:var(--muted);margin:0 0 20px;max-width:62ch}
+section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+h2{font-size:1rem;margin:0 0 10px}
+.doc{font-family:var(--mono);display:flex;flex-wrap:wrap;gap:2px;min-height:64px;align-content:flex-start}
+.c{display:inline-flex;flex-direction:column;align-items:center;min-width:1.4ch;padding:2px 3px;border-radius:3px}
+.c b{font-weight:600;font-size:1.05rem;min-height:1.5em;white-space:pre}
+.c i{font-style:normal;font-size:.62rem;color:var(--muted)}
+.c.hit{background:var(--hit)}
+.c.end b{color:var(--muted)}
+.empty{color:var(--muted);font-style:italic}
+.meta{color:var(--muted);font-size:.85rem;margin-top:8px}
+.tabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.tabs button{font:inherit;padding:6px 14px;border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:6px;cursor:pointer}
+.tabs button[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+label{display:flex;flex-direction:column;font-size:.85rem;color:var(--muted);gap:3px}
+input{font:inherit;font-family:var(--mono);padding:7px 9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
+input[type=number]{width:90px}
+.grow{flex:1;min-width:160px}
+button.go,button.act{font:inherit;padding:8px 16px;border-radius:6px;border:1px solid var(--ink);background:var(--ink);color:var(--panel);cursor:pointer;font-weight:700}
+button.act{background:transparent;color:var(--ink);border-color:var(--line);font-weight:500}
+button:disabled{opacity:.4;cursor:not-allowed}
+button:focus-visible,input:focus-visible{outline:3px solid var(--redo);outline-offset:2px}
+#status{min-height:1.5em;margin-top:10px;font-size:.9rem}
+#status.err{color:var(--bad)} #status.ok{color:var(--ok)}
+.stacks{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.stack{border-radius:8px;padding:10px;min-height:150px}
+.stack.u{background:var(--undo-bg)} .stack.r{background:var(--redo-bg)}
+.stack h3{margin:0 0 2px;font-size:.95rem}
+.stack.u h3{color:var(--undo)} .stack.r h3{color:var(--redo)}
+.stack p{margin:0 0 8px;font-size:.78rem;color:var(--muted)}
+.card{background:var(--panel);border-left:4px solid currentColor;border-radius:4px;padding:6px 9px;margin-bottom:6px;font-size:.82rem;font-family:var(--mono);word-break:break-word}
+.u .card{color:var(--undo)} .r .card{color:var(--redo)}
+.card span{color:var(--ink)}
+.card:first-of-type{outline:2px solid currentColor}
+.compare{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.bar{height:14px;border-radius:7px;background:var(--line);overflow:hidden;margin:6px 0 4px}
+.bar div{height:100%;background:var(--redo)} .bar.s div{background:var(--undo)}
+.big{font-family:var(--mono);font-size:1.3rem;font-weight:600}
+.banner{display:none;background:var(--hit);padding:10px 14px;border-radius:8px;margin-bottom:16px;gap:12px;align-items:center;flex-wrap:wrap}
+.banner.show{display:flex}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+@media (max-width:640px){.stacks,.compare{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <div>
+      <h1>Text editor with undo and redo</h1>
+      <p class="sub">Edit the document, then watch each change move between the two stacks. Undo moves the top card to the redo stack; a new edit empties it.</p>
+    </div>
+    <button class="act" id="theme" type="button">Theme</button>
+  </div>
+
+  <div class="banner" id="banner">
+    <span>A document from your last session was found.</span>
+    <button class="go" id="recover" type="button">Recover it</button>
+    <button class="act" id="dismiss" type="button">Dismiss</button>
+  </div>
+
+  <section>
+    <h2>Document</h2>
+    <div class="doc" id="doc" aria-live="polite"></div>
+    <div class="meta" id="meta"></div>
+  </section>
+
+  <section>
+    <div class="tabs" role="group" aria-label="Edit type">
+      <button type="button" data-t="I" aria-pressed="true">Insert</button>
+      <button type="button" data-t="D" aria-pressed="false">Delete</button>
+      <button type="button" data-t="R" aria-pressed="false">Replace</button>
+    </div>
+    <div class="row">
+      <label>Position <input type="number" id="pos" min="0" value="0"></label>
+      <label id="lenW" hidden>Length <input type="number" id="len" min="1" value="1"></label>
+      <label class="grow" id="txtW">Text <input type="text" id="txt" autocomplete="off"></label>
+      <button class="go" id="apply" type="button">Insert</button>
+    </div>
+    <div id="status" role="status"></div>
+    <div class="row" style="margin-top:6px">
+      <button class="act" id="undo" type="button">Undo (Ctrl+Z)</button>
+      <button class="act" id="redo" type="button">Redo (Ctrl+Y)</button>
+      <button class="act" id="verify" type="button">Verify 100 undo/redo rounds</button>
+    </div>
+  </section>
+
+  <section>
+    <div class="stacks">
+      <div class="stack u"><h3>Undo stack</h3><p>Top card is undone next</p><div id="us"></div></div>
+      <div class="stack r"><h3>Redo stack</h3><p>Top card is redone next</p><div id="rs"></div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Storing changes vs. storing full snapshots</h2>
+    <div class="compare">
+      <div><div>Inverse operations (this editor)</div><div class="big" id="ob">0 B</div><div class="bar"><div id="obar" style="width:0"></div></div></div>
+      <div><div>Full snapshot after every edit</div><div class="big" id="sb">0 B</div><div class="bar s"><div id="sbar" style="width:0"></div></div></div>
+    </div>
+    <div class="meta">Each edit stores the position plus the text added and removed, so undo can run it backwards. Snapshots copy the whole document each time. Try pasting a long text and making small edits to see the gap grow.</div>
+  </section>
+</main>
+
+<script>
+(function(){
+  var doc = "Hello World", undoS = [], redoS = [], type = "I", hit = null;
+  var $ = function(id){return document.getElementById(id)};
+
+  function applyFwd(o){ doc = doc.slice(0,o.pos) + o.n + doc.slice(o.pos + o.o.length); }
+  function applyBack(o){ doc = doc.slice(0,o.pos) + o.o + doc.slice(o.pos + o.n.length); }
+
+  function save(){ try{ localStorage.setItem("undoRedoDoc", doc); }catch(e){} }
+
+  function status(msg, kind){ var s=$("status"); s.textContent=msg||""; s.className=kind||""; }
+
+  function edit(o){
+    applyFwd(o); undoS.push(o); redoS = [];
+    hit = [o.pos, o.pos + o.n.length]; save(); render();
+  }
+
+  function doEdit(){
+    var pos = parseInt($("pos").value,10), len = parseInt($("len").value,10), t = $("txt").value;
+    if (isNaN(pos) || pos < 0 || pos > doc.length){ status("Position must be between 0 and " + doc.length + ".","err"); return; }
+    if (type === "I"){
+      if (!t){ status("Type the text to insert.","err"); return; }
+      edit({type:"I",pos:pos,n:t,o:""});
+    } else {
+      if (isNaN(len) || len < 1 || pos + len > doc.length){ status("That range goes past the end. The document has " + doc.length + " characters.","err"); return; }
+      if (type === "R" && !t){ status("Type the replacement text, or use Delete.","err"); return; }
+      edit({type:type,pos:pos,n:type==="R"?t:"",o:doc.substr(pos,len)});
+    }
+    status(""); $("txt").value=""; $("txt").focus();
+  }
+
+  function undo(){
+    if (!undoS.length){ status("Nothing to undo.","err"); return; }
+    var o = undoS.pop(); applyBack(o); redoS.push(o);
+    hit = [o.pos, o.pos + o.o.length]; status(""); save(); render();
+  }
+  function redo(){
+    if (!redoS.length){ status("Nothing to redo.","err"); return; }
+    var o = redoS.pop(); applyFwd(o); undoS.push(o);
+    hit = [o.pos, o.pos + o.n.length]; status(""); save(); render();
+  }
+
+  function verify(){
+    if (!undoS.length && !redoS.length){ status("Make an edit first, then verify.","err"); return; }
+    while (redoS.length){ var a = redoS.pop(); applyFwd(a); undoS.push(a); }
+    var latest = doc, total = undoS.length, ok = true, start;
+    for (var i=0;i<total;i++){ var b = undoS.pop(); applyBack(b); redoS.push(b); }
+    start = doc;
+    for (var r=0;r<100 && ok;r++){
+      for (var j=0;j<total;j++){ var c = redoS.pop(); applyFwd(c); undoS.push(c); }
+      if (doc !== latest) ok = false;
+      for (var k=0;k<total;k++){ var d = undoS.pop(); applyBack(d); redoS.push(d); }
+      if (doc !== start) ok = false;
+    }
+    while (redoS.length){ var e = redoS.pop(); applyFwd(e); undoS.push(e); }
+    hit = null; save(); render();
+    status(ok ? "Passed: 100 rounds of undo-all and redo-all restored the exact document each time."
+              : "Failed: the document changed during the test.", ok ? "ok" : "err");
+  }
+
+  function describe(o){
+    var q = function(s){ return "\u201C" + s + "\u201D"; };
+    if (o.type==="I") return ["Insert", q(o.n) + " at " + o.pos];
+    if (o.type==="D") return ["Delete", q(o.o) + " at " + o.pos];
+    return ["Replace", q(o.o) + " with " + q(o.n) + " at " + o.pos];
+  }
+  function cards(list, host){
+    host.textContent = "";
+    if (!list.length){ var e = document.createElement("div"); e.className="empty"; e.textContent="Empty"; host.appendChild(e); return; }
+    for (var i=list.length-1;i>=0;i--){
+      var d = describe(list[i]), c = document.createElement("div");
+      c.className = "card"; c.textContent = d[0] + " ";
+      var s = document.createElement("span"); s.textContent = d[1]; c.appendChild(s); host.appendChild(c);
+    }
+  }
+
+  function sizes(){
+    var ob = 0, i;
+    var all = undoS.concat(redoS.slice().reverse());
+    for (i=0;i<all.length;i++) ob += 16 + all[i].n.length + all[i].o.length;
+    var copy = doc, base;
+    for (i=undoS.length-1;i>=0;i--){ var o = undoS[i]; copy = copy.slice(0,o.pos) + o.o + copy.slice(o.pos + o.n.length); }
+    base = copy; var sb = 0, cur = base;
+    for (i=0;i<all.length;i++){ var p = all[i]; cur = cur.slice(0,p.pos) + p.n + cur.slice(p.pos + p.o.length); sb += cur.length; }
+    return [ob, sb];
+  }
+  function fmt(n){ return n < 1024 ? n + " B" : (n/1024).toFixed(1) + " KB"; }
+
+  function render(){
+    var host = $("doc"); host.textContent = "";
+    if (!doc.length){ var em = document.createElement("span"); em.className="empty"; em.textContent="The document is empty. Insert some text at position 0."; host.appendChild(em); }
+    for (var i=0;i<=doc.length && doc.length;i++){
+      var c = document.createElement("span"), b = document.createElement("b"), n = document.createElement("i");
+      c.className = "c" + (i===doc.length ? " end" : "") + (hit && i>=hit[0] && i<hit[1] ? " hit" : "");
+      b.textContent = i===doc.length ? "+" : doc.charAt(i); n.textContent = i;
+      c.appendChild(b); c.appendChild(n); host.appendChild(c);
+    }
+    $("meta").textContent = doc.length + " characters. The highlighted cells show where the last edit happened.";
+    cards(undoS, $("us")); cards(redoS, $("rs"));
+    $("undo").disabled = !undoS.length; $("redo").disabled = !redoS.length;
+    $("pos").max = doc.length;
+    var s = sizes(), mx = Math.max(s[0], s[1], 1);
+    $("ob").textContent = fmt(s[0]); $("sb").textContent = fmt(s[1]);
+    $("obar").style.width = (s[0]/mx*100) + "%"; $("sbar").style.width = (s[1]/mx*100) + "%";
+  }
+
+  function setType(t){
+    type = t;
+    var tabs = document.querySelectorAll(".tabs button");
+    for (var i=0;i<tabs.length;i++) tabs[i].setAttribute("aria-pressed", tabs[i].dataset.t === t ? "true" : "false");
+    $("lenW").hidden = (t === "I"); $("txtW").hidden = (t === "D");
+    $("apply").textContent = t==="I" ? "Insert" : t==="D" ? "Delete" : "Replace";
+    status("");
+  }
+
+  var tabs = document.querySelectorAll(".tabs button");
+  for (var i=0;i<tabs.length;i++) tabs[i].addEventListener("click", function(){ setType(this.dataset.t); });
+  $("apply").addEventListener("click", doEdit);
+  $("undo").addEventListener("click", undo);
+  $("redo").addEventListener("click", redo);
+  $("verify").addEventListener("click", verify);
+  ["pos","len","txt"].forEach(function(id){ $(id).addEventListener("keydown", function(e){ if (e.key==="Enter") doEdit(); }); });
+  document.addEventListener("keydown", function(e){
+    if (!(e.ctrlKey || e.metaKey)) return;
+    var k = e.key.toLowerCase();
+    if (k==="z" && !e.shiftKey){ e.preventDefault(); undo(); }
+    else if (k==="y" || (k==="z" && e.shiftKey)){ e.preventDefault(); redo(); }
+  });
+
+  $("theme").addEventListener("click", function(){
+    var r = document.documentElement, dark = getComputedStyle(r).colorScheme === "dark" || r.dataset.theme === "dark";
+    r.dataset.theme = dark ? "light" : "dark";
+  });
+
+  // recovery of the last session
+  try{
+    var old = localStorage.getItem("undoRedoDoc");
+    if (old && old !== doc){
+      $("banner").classList.add("show");
+      $("recover").addEventListener("click", function(){
+        doc = old; undoS = []; redoS = []; hit = null; $("banner").classList.remove("show");
+        status("Recovered. Undo history starts fresh, as in the C++ version.","ok"); render();
+      });
+      $("dismiss").addEventListener("click", function(){ $("banner").classList.remove("show"); });
+    }
+  }catch(e){}
+
+  render();
+})();
+</script>
+</body>
+</html>
