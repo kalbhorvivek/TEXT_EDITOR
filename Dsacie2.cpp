@@ -3,7 +3,7 @@
 #include <string>
 using namespace std;
 
-// one edit that was done on the document
+
 // type: 'I' = insert, 'D' = delete, 'R' = replace
 class Operation {
 public:
@@ -24,7 +24,7 @@ public:
     }
 };
 
-// simple stack made by us (no STL)
+
 class Node {
 public:
     Operation data;
